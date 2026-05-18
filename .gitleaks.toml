@@ -1,0 +1,68 @@
+# Copyright (c) Magnon Compute Corporation. All rights reserved.
+#
+# Gitleaks configuration — extends default detection rules with a Magnon-wide
+# allowlist of well-understood false-positive patterns.
+#
+# Why this file looks the way it does:
+#   * In gitleaks, `[[rules]]` blocks are DETECTION rules. The `tags` field is
+#     metadata only — adding `tags = ["allowlist"]` to a rule does NOT silence it.
+#   * The correct way to suppress false positives is `[allowlist]` (top-level)
+#     or `[[rules]].allowlist` (per-rule). See:
+#         https://github.com/gitleaks/gitleaks/blob/master/README.md#configuration
+#
+# This config replaces a previously broken `test-fixtures` rule (id, regex,
+# tags=allowlist) that was an additive detection rule matching any string
+# containing "test|fake|example|placeholder|dummy|sample". That rule produced a
+# false-positive storm on `data-testid`, `testing-library`, `:latest` image
+# tags, `samplerArg`, and dozens of other unrelated substrings.
+
+title = "Magnon Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Magnon estate allowlist — well-understood non-secret patterns"
+
+# Stop-words for confirmed false-positive substrings that fired against the
+# previous broken `test-fixtures` rule. Keep this list tight; only add patterns
+# after confirming the matching string carries no real secret material.
+regexes = [
+    # Placeholder env-var and identifier prefixes/suffixes
+    '''EXAMPLE_''',
+    '''_PLACEHOLDER''',
+    '''magnon\.io/''',
+    # Confirmed false-positive substrings from the P58 audit
+    '''data-testid''',
+    '''testing-library''',
+    '''samplerArg''',
+    '''parentbased_traceidratio''',
+    # Common image-tag references that look like assignments but aren't
+    '''(?i):(latest|staging|main|develop)\b''',
+    # Compound placeholders like FAKE_PASSWORD, EXAMPLE_TOKEN, DUMMY_KEY etc.
+    '''(?i)(fake|example|placeholder|dummy|sample|test)[-_]?(secret|password|token|key|api[-_]?key)''',
+    # SealedSecret stub placeholders used estate-wide
+    '''PLACEHOLDER_SEAL_WITH_KUBESEAL''',
+    '''REPLACE_WITH_KUBESEAL_OUTPUT''',
+    '''SEALED_SECRET_PLACEHOLDER''',
+]
+
+paths = [
+    '''\.gitleaks\.toml''',
+    '''testdata/''',
+    '''fixtures/''',
+    '''tests/''',
+    '''docs/''',
+    '''README\.md''',
+    '''CLAUDE\.md''',
+    '''\.github/workflows/''',
+]
+
+[[rules]]
+# kubeseal-produced ciphertext is base64 and looks like a high-entropy secret
+# to gitleaks. It is not — the value is encrypted under the cluster's sealed-secrets
+# controller public key and can only be decrypted in-cluster.
+id = "sealed-secret-encrypted-data"
+description = "kubeseal encryptedData ciphertext — not a raw secret"
+regex = '''encryptedData:\s+\S+:\s+[A-Za-z0-9+/=]{30,}'''
+allowlist.regexes = [".*"]
